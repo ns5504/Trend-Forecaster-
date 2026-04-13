@@ -417,7 +417,7 @@ function FashionTrendForecaster() {
   const scanWeb = async()=>{
     setScanning(true); setStatus("Scanning web for trends…");
     try {
-      const parsed = await claude(
+      const parsed = await groq(
         'You are a fashion analyst. Search the web for what is trending in fashion right now. You MUST return a JSON object with a "topics" array of exactly 5 short trend names. Example: {"topics":["Quiet Luxury","Gorpcore","Ballet Core","Moto Aesthetic","Sheer Layering"]}. Output ONLY the JSON object, nothing else.',
         "Search web for the 5 biggest emerging fashion trends of 2026. Short 2-3 word names only."
       );
@@ -435,7 +435,7 @@ function FashionTrendForecaster() {
     setFLoading(true); setStatus(`Forecasting ${topics.length} trend(s)…`);
     try {
       const res = await Promise.allSettled(topics.map(async topic => {
-        const parsed = await claude(
+        const parsed =await groq(
           'You are a fashion trend forecaster. Use web_search to research ANY fashion topic given to you — familiar or unfamiliar. Always produce a forecast. Output ONLY a JSON object:\n{"topic":"exact topic name","category":"Style/Color/Silhouette/Material/Aesthetic/Accessory","heat":"rising","forecast":"2-3 sentence editorial forecast","signals":["signal 1","signal 2","signal 3"],"confidence":75}\nheat = hot | rising | emerging | fading. confidence = 0-100 integer.',
           `You MUST forecast this fashion topic regardless of how niche or unfamiliar it seems: "${topic}". Search the web for any signals about this trend in 2026 and produce a forecast.`
         );
@@ -457,7 +457,7 @@ function FashionTrendForecaster() {
         setStatus(`${good.length} forecasts ready — curating looks…`);
         setOLoading(true);
         const ores = await Promise.allSettled(topics.map(async topic => {
-          const parsed = await claude(
+          const parsed = await groq(
             'You are a fashion stylist. Use web_search. Output ONLY a JSON object:\n{"trend":"topic","outfitName":"name","description":"2 sentences","imageSearchQuery":"search terms","colors":["#c8a882","#4a4a4a","#b8974a"],"pieces":[{"name":"item","priceRange":"$X"}],"shoppingLinks":[{"retailer":"name","url":"https://retailer.com"}],"sources":[{"publication":"Vogue","title":"article","url":"https://..."}]}\ncolors: 3 hex codes. shoppingLinks: net-a-porter.com ssense.com farfetch.com nordstrom.com asos.com zara.com hm.com. 4 pieces, 3 links, 2 sources.',
             `Curate an outfit look for the fashion trend: "${topic}" in 2026. Search for editorial inspiration and retail options.`
           );
@@ -516,7 +516,7 @@ function FashionTrendForecaster() {
   const loadStores = async()=>{
     setStoreLoad(true); setStatus("Finding trending stores…");
     try {
-      const parsed = await claude(
+      const parsed = await groq(
         'You are a fashion retail analyst. Search the web. Output ONLY a JSON array of store objects:\n[{"name":"Store Name","category":"Luxury","priceRange":"$$$$","description":"1-2 sentences about the store.","url":"https://store.com","trendingItems":[{"name":"Item Name","price":"$99"}]}]\n8 stores total. 4 trending items each. Mix of luxury, fast fashion, streetwear, contemporary. Use real store names and real URLs.',
         "Find 8 popular and trending fashion retailers in 2026. Include their current hottest items and prices."
       );
@@ -531,7 +531,7 @@ function FashionTrendForecaster() {
     setPinLoad(true); setStatus("Loading outfit inspiration…");
     try {
       const q = topics.length > 0 ? topics.join(", ") : "quiet luxury, gorpcore, ballet core 2026";
-      const parsed = await claude(
+      const parsed = await groq(
         'You are a fashion stylist. Search the web for outfit inspiration. Output ONLY a JSON array of 6 outfit objects:\n[{"title":"Look Name","trend":"trend name","gender":"female","description":"2 editorial sentences about the outfit.","searchQuery":"outfit search terms 2026","colors":["#hex1","#hex2","#hex3"],"shopLinks":[{"retailer":"Name","url":"https://retailer.com/path"}]}]\nIMPORTANT: Make exactly 3 female looks and 3 male looks. Set gender to "female" or "male" accordingly. 3 shopLinks each. Use real retailer domains: net-a-porter.com, ssense.com, mrporter.com, nordstrom.com, asos.com, zara.com, hm.com, farfetch.com.',
         `Find 6 Pinterest-style outfit inspirations for these fashion trends: ${q}. Return 3 female looks and 3 male looks.`
       );
@@ -990,7 +990,7 @@ function FashionTrendForecaster() {
         </div>
       </div>
     </div>
-);
+  );
 }
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
