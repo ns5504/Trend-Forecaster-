@@ -375,7 +375,7 @@ function OutfitIllustration({ colors=[] }) {
 // ══════════════════════════════════════════════════════════════
 //  MAIN APP
 // ══════════════════════════════════════════════════════════════
-export default function App() {
+function FashionTrendForecaster() {
   const [tab, setTab]       = useState("forecast");
   const [topics, setTopics] = useState([]);
   const [inputVal, setInputVal] = useState("");
@@ -991,7 +991,7 @@ export default function App() {
         </div>
       </div>
     </div>
-  );
+);
 }
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
