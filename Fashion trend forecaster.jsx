@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+const { useState, useEffect } = React;
 
 // ─── No external chart library — all charts are hand-built SVG ────────────
 
@@ -993,3 +993,6 @@ export default function App() {
     </div>
   );
 }
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<FashionTrendForecaster />);
