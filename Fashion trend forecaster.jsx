@@ -105,7 +105,7 @@ async function groq(system, user) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${process.env.GROQ_API_KEY}`
+      "Authorization": `Bearer ${process.env.Groq_api_key}`
     },
     body: JSON.stringify({
       model: "llama-3.3-70b-versatile",
