@@ -133,6 +133,7 @@ async function groq(system, user) {
   return extractJSON(d.choices[0].message.content);
 }
 
+
  
 // ══════════════════════════════════════════════════════════════
 //  PURE SVG CHART COMPONENTS — zero external dependencies
@@ -556,6 +557,8 @@ function FashionTrendForecaster() {
       } else {
         throw new Error("No looks found in the response");
       }
+    } catch(e){ setStatus("Looks load failed: " + e.message); }
+    finally{ setPinLoad(false); }
   };
   // ── Shared UI helpers ──────────────────────────────────────
   const heatStyle = h => ({
