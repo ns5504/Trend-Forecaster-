@@ -101,14 +101,11 @@ function extractJSON(str) {
 }
 
 async function groq(system, user) {
-  const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+  // We call our OWN function now, so the key stays hidden!
+  const r = await fetch("/.netlify/functions/groq", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${process.env.Groq_api_key}`
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "llama-3.3-70b-versatile",
       messages: [
         { role: "system", content: system },
         { role: "user", content: user }
@@ -118,14 +115,14 @@ async function groq(system, user) {
   });
 
   if (!r.ok) {
-    const errText = await r.text().catch(() => "");
-    throw new Error(`Groq API error ${r.status}: ${errText.slice(0, 120)}`);
+    throw new Error(`Function Error: ${r.status}`);
   }
 
   const d = await r.json();
   return extractJSON(d.choices[0].message.content);
 }
 
+ 
 // ══════════════════════════════════════════════════════════════
 //  PURE SVG CHART COMPONENTS — zero external dependencies
 // ══════════════════════════════════════════════════════════════
@@ -489,7 +486,7 @@ function FashionTrendForecaster() {
   const refreshDash = async()=>{
     setDashLoading(true); setStatus("Refreshing dashboard with live data…");
     try {
-      const parsed = await claude(
+      const parsed = await groq(
         'You are a fashion data analyst. Search the web for 2026 fashion trend data. Output ONLY a JSON object with ALL of these keys: kpis (array of 4 objects with label/value/delta/up), seasonal (array of 4 objects with season/Casual/Formal/Street/Luxury as numbers), stores (array of 7 with name/pct), rising (array of 5 with style/score), declining (array of 5 with style/score), prob (array of 6 with trend/prob), momentum (array of 6 with month/Luxury/Street/Sport/Minimal), bags (array of 6 with name/trend), accessories (array of 6 with name/trend), shoes (array of 6 with name/trend). trend values must be up, flat, or down. All scores/pct are numbers 0-100.',
         "Search for 2026 fashion market analytics: seasonal trends, popular retailers, rising and declining styles, accessories, shoes, bags. Return the complete dashboard JSON."
       );
