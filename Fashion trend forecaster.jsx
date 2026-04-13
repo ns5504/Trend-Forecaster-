@@ -545,14 +545,17 @@ function FashionTrendForecaster() {
         'IMPORTANT: Use realistic Unsplash fashion URLs for the "img" field. 3 female, 3 male.',
         `Find 6 Pinterest-style inspirations for: ${q}.`
       );
-      const arr = Array.isArray(parsed) ? parsed : (parsed.pins || parsed.looks || []);
-      if (arr.length > 0) { 
-        setPins(arr); 
-        setStatus(`${arr.length} looks loaded`); 
+     const arr = Array.isArray(parsed) ? parsed : (parsed.pins || parsed.looks || parsed.outfits || []);
+      
+      // ADD THIS LINE to double-check if 'parsed' itself is the object containing the array
+      const finalData = Array.isArray(arr) ? arr : Object.values(parsed).find(val => Array.isArray(val)) || [];
+
+      if (finalData.length > 0) {
+        setPins(finalData); 
+        setStatus(`${finalData.length} looks loaded`); 
+      } else {
+        throw new Error("No looks found in the response");
       }
-      else throw new Error("No looks in response");
-    } catch(e){ setStatus("Looks load failed: " + e.message); }
-    finally{ setPinLoad(false); }
   };
   // ── Shared UI helpers ──────────────────────────────────────
   const heatStyle = h => ({
