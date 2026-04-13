@@ -100,31 +100,30 @@ function extractJSON(str) {
   throw new Error("No valid JSON found in response");
 }
 
-async function claude(system, user) {
-  const r = await fetch("https://api.anthropic.com/v1/messages", {
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
+async function groq(system, user) {
+  const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${process.env.GROQ_API_KEY}`
+    },
     body: JSON.stringify({
-      model:"claude-sonnet-4-20250514",
-      max_tokens:1500,
-      tools:[{type:"web_search_20250305",name:"web_search"}],
-      system,
-      messages:[{role:"user",content:user}],
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user }
+      ],
+      response_format: { type: "json_object" }
     }),
   });
+
   if (!r.ok) {
-    const errText = await r.text().catch(()=>"");
-    throw new Error(`API error ${r.status}: ${errText.slice(0,120)}`);
+    const errText = await r.text().catch(() => "");
+    throw new Error(`Groq API error ${r.status}: ${errText.slice(0, 120)}`);
   }
+
   const d = await r.json();
-  if (d.error) throw new Error(d.error.message || JSON.stringify(d.error));
-  // Collect ALL text blocks (web search causes multi-turn blocks)
-  const allText = (d.content||[])
-    .filter(b => b.type === "text")
-    .map(b => b.text || "")
-    .join("\n");
-  if (!allText.trim()) throw new Error("Model returned no text. Stop reason: " + (d.stop_reason||"unknown"));
-  return extractJSON(allText);
+  return extractJSON(d.choices[0].message.content);
 }
 
 // ══════════════════════════════════════════════════════════════
