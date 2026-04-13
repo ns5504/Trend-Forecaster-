@@ -1,28 +1,6 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Horizon Retail — AI Fashion Trend Intelligence</title>
-  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #f5f0e8; font-family: 'DM Mono', monospace; color: #0a0a0a; }
-    button { font-family: 'DM Mono', monospace; }
-    a { font-family: 'DM Mono', monospace; }
-    ::-webkit-scrollbar { width: 4px; height: 4px; }
-    ::-webkit-scrollbar-track { background: #ede6d6; }
-    ::-webkit-scrollbar-thumb { background: #d4c9b4; }
-  </style>
-</head>
-<body>
-  <div id="root"></div>
-
-<script type="text/babel">
 const { useState, useEffect } = React;
+
+// ─── No external chart library — all charts are hand-built SVG ────────────
 
 const C = {
   ink:"#0a0a0a", cream:"#f5f0e8", warm:"#ede6d6", accent:"#c8431a",
@@ -93,12 +71,16 @@ const DEFAULT_DASH = {
   ],
 };
 
-// ── JSON extractor ──────────────────────────────────────────
+// ─── Claude API ──────────────────────────────────────────────────────────
+// Extracts the first valid JSON object {} or array [] from any string
 function extractJSON(str) {
   if (!str) throw new Error("Empty response");
+  // Try direct parse first
   try { return JSON.parse(str.trim()); } catch(_) {}
+  // Strip markdown fences
   let s = str.replace(/```json\s*/gi,"").replace(/```\s*/g,"").trim();
   try { return JSON.parse(s); } catch(_) {}
+  // Find first { or [ and extract balanced block
   for (const [open, close] of [["{","}"],["[","]"]]) {
     const start = s.indexOf(open);
     if (start === -1) continue;
@@ -118,11 +100,13 @@ function extractJSON(str) {
   throw new Error("No valid JSON found in response");
 }
 
-// ── Groq API — calls /.netlify/functions/groq proxy ────────
 async function groq(system, user) {
-  const r = await fetch("/.netlify/functions/groq", {
+  const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${process.env.Groq_api_key}`
+    },
     body: JSON.stringify({
       model: "llama-3.3-70b-versatile",
       messages: [
@@ -134,7 +118,8 @@ async function groq(system, user) {
   });
 
   if (!r.ok) {
-    throw new Error("Proxy error: " + r.status);
+    const errText = await r.text().catch(() => "");
+    throw new Error(`Groq API error ${r.status}: ${errText.slice(0, 120)}`);
   }
 
   const d = await r.json();
@@ -142,9 +127,10 @@ async function groq(system, user) {
 }
 
 // ══════════════════════════════════════════════════════════════
-//  SVG CHART COMPONENTS
+//  PURE SVG CHART COMPONENTS — zero external dependencies
 // ══════════════════════════════════════════════════════════════
 
+// Grouped vertical bar chart
 function BarChartSVG({ data, keys, colors, title, subtitle }) {
   const W=480, H=200, padL=40, padB=30, padT=10, padR=10;
   const chartW = W - padL - padR;
@@ -153,11 +139,13 @@ function BarChartSVG({ data, keys, colors, title, subtitle }) {
   const groupW = chartW / data.length;
   const barW = Math.max(4, (groupW / keys.length) - 3);
   const [hovered, setHovered] = useState(null);
+
   return (
     <div>
       <div style={{fontSize:13,fontFamily:"Georgia,serif",fontStyle:"italic",fontWeight:700,marginBottom:2}}>{title}</div>
       <div style={{fontSize:7,letterSpacing:".2em",textTransform:"uppercase",color:C.muted,marginBottom:10}}>{subtitle}</div>
       <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:"auto",overflow:"visible"}}>
+        {/* Y gridlines */}
         {[0,25,50,75,100].map(v=>{
           const y = padT + chartH - (v/100)*chartH;
           return (
@@ -167,6 +155,7 @@ function BarChartSVG({ data, keys, colors, title, subtitle }) {
             </g>
           );
         })}
+        {/* Bars */}
         {data.map((d,gi)=>{
           const gx = padL + gi*groupW;
           return (
@@ -179,10 +168,11 @@ function BarChartSVG({ data, keys, colors, title, subtitle }) {
                 const isHov = hovered?.gi===gi && hovered?.ki===ki;
                 return (
                   <g key={ki}
-                    onMouseEnter={()=>setHovered({gi,ki,val,key:k})}
+                    onMouseEnter={()=>setHovered({gi,ki,val,key:k,season:d.season||d.month})}
                     onMouseLeave={()=>setHovered(null)}
                     style={{cursor:"default"}}>
-                    <rect x={x} y={y} width={barW} height={bh} fill={colors[ki]} opacity={isHov?1:0.85} rx="1"/>
+                    <rect x={x} y={y} width={barW} height={bh}
+                      fill={colors[ki]} opacity={isHov?1:0.85} rx="1"/>
                     {isHov && (
                       <g>
                         <rect x={x-18} y={y-22} width={44} height={16} fill={C.ink} rx="2"/>
@@ -192,12 +182,16 @@ function BarChartSVG({ data, keys, colors, title, subtitle }) {
                   </g>
                 );
               })}
-              <text x={gx+groupW/2} y={H-8} textAnchor="middle" fontSize="8" fill={C.muted}>{d.season||d.month}</text>
+              <text x={gx+groupW/2} y={H-8} textAnchor="middle" fontSize="8" fill={C.muted}>
+                {d.season||d.month}
+              </text>
             </g>
           );
         })}
+        {/* X axis */}
         <line x1={padL} y1={padT+chartH} x2={W-padR} y2={padT+chartH} stroke={C.border} strokeWidth="1"/>
       </svg>
+      {/* Legend */}
       <div style={{display:"flex",gap:12,flexWrap:"wrap",marginTop:6}}>
         {keys.map((k,i)=>(
           <span key={k} style={{display:"flex",alignItems:"center",gap:4,fontSize:8,color:C.muted}}>
@@ -210,6 +204,7 @@ function BarChartSVG({ data, keys, colors, title, subtitle }) {
   );
 }
 
+// Horizontal bar chart
 function HBarChart({ data, labelKey, valueKey, color, title, subtitle }) {
   const maxVal = Math.max(...data.map(d=>d[valueKey]||0), 1);
   const [hovered, setHovered] = useState(null);
@@ -220,7 +215,8 @@ function HBarChart({ data, labelKey, valueKey, color, title, subtitle }) {
       {data.map((d,i)=>{
         const pct = ((d[valueKey]||0)/maxVal)*100;
         return (
-          <div key={i} style={{marginBottom:8}} onMouseEnter={()=>setHovered(i)} onMouseLeave={()=>setHovered(null)}>
+          <div key={i} style={{marginBottom:8}}
+            onMouseEnter={()=>setHovered(i)} onMouseLeave={()=>setHovered(null)}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
               <span style={{fontSize:9,color:C.ink}}>{d[labelKey]}</span>
               <span style={{fontSize:9,color,fontWeight:700}}>{d[valueKey]}</span>
@@ -235,6 +231,7 @@ function HBarChart({ data, labelKey, valueKey, color, title, subtitle }) {
   );
 }
 
+// Donut / pie chart (pure SVG path math)
 function DonutChart({ data, title, subtitle }) {
   const [hovered, setHovered] = useState(null);
   const total = data.reduce((s,d)=>s+d.pct,0)||1;
@@ -248,11 +245,13 @@ function DonutChart({ data, title, subtitle }) {
     const xi1=cx+inner*Math.cos(angle-sweep), yi1=cy+inner*Math.sin(angle-sweep);
     const xi2=cx+inner*Math.cos(angle), yi2=cy+inner*Math.sin(angle);
     const large = sweep>Math.PI?1:0;
+    const mid = angle - sweep/2;
     return {
       path:`M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} L ${xi2} ${yi2} A ${inner} ${inner} 0 ${large} 0 ${xi1} ${yi1} Z`,
-      color:C.p[i%C.p.length], name:d.name, pct:d.pct,
+      color:C.p[i%C.p.length], name:d.name, pct:d.pct, mid
     };
   });
+
   return (
     <div>
       <div style={{fontSize:13,fontFamily:"Georgia,serif",fontStyle:"italic",fontWeight:700,marginBottom:2}}>{title}</div>
@@ -265,7 +264,8 @@ function DonutChart({ data, title, subtitle }) {
               stroke={C.cream} strokeWidth="1"
               style={{cursor:"default"}}
               onMouseEnter={()=>setHovered(i)}
-              onMouseLeave={()=>setHovered(null)}/>
+              onMouseLeave={()=>setHovered(null)}
+            />
           ))}
           {hovered!==null && (
             <text x={cx} y={cy+4} textAnchor="middle" fontSize="10" fill={C.ink} fontWeight="700">
@@ -275,7 +275,8 @@ function DonutChart({ data, title, subtitle }) {
         </svg>
         <div style={{display:"flex",flexDirection:"column",gap:5}}>
           {slices.map((s,i)=>(
-            <div key={i} style={{display:"flex",alignItems:"center",gap:5,fontSize:8,opacity:hovered===null||hovered===i?1:0.4,cursor:"default"}}
+            <div key={i} style={{display:"flex",alignItems:"center",gap:5,fontSize:8,
+              opacity:hovered===null||hovered===i?1:0.4,cursor:"default"}}
               onMouseEnter={()=>setHovered(i)} onMouseLeave={()=>setHovered(null)}>
               <span style={{width:8,height:8,background:s.color,display:"inline-block",flexShrink:0}}/>
               <span style={{color:C.muted}}>{s.name}</span>
@@ -288,38 +289,48 @@ function DonutChart({ data, title, subtitle }) {
   );
 }
 
+// Line / sparkline chart
 function LineChartSVG({ data, keys, colors, title, subtitle }) {
   const W=480, H=180, padL=36, padB=24, padT=10, padR=10;
   const chartW=W-padL-padR, chartH=H-padT-padB;
   const allVals = data.flatMap(d=>keys.map(k=>d[k]||0));
   const minV=Math.min(...allVals), maxV=Math.max(...allVals,1);
   const [hovered, setHovered] = useState(null);
+
   const px = (i) => padL + (i/(data.length-1))*chartW;
   const py = (v) => padT + chartH - ((v-minV)/(maxV-minV||1))*chartH;
+
   return (
     <div>
       <div style={{fontSize:13,fontFamily:"Georgia,serif",fontStyle:"italic",fontWeight:700,marginBottom:2}}>{title}</div>
       <div style={{fontSize:7,letterSpacing:".2em",textTransform:"uppercase",color:C.muted,marginBottom:10}}>{subtitle}</div>
       <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:"auto",overflow:"visible"}}>
         {[0,25,50,75,100].map(v=>{
-          const y = padT + chartH - (v/100)*chartH;
+          const y = padT + chartH - ((v-0)/(100))*chartH;
           return <line key={v} x1={padL} y1={y} x2={W-padR} y2={y} stroke={C.border} strokeWidth="0.5"/>;
         })}
         {keys.map((k,ki)=>{
           const pts = data.map((d,i)=>`${px(i)},${py(d[k]||0)}`).join(" ");
-          return <polyline key={k} points={pts} fill="none" stroke={colors[ki]} strokeWidth="2" strokeLinejoin="round" opacity={0.9}/>;
+          return (
+            <polyline key={k} points={pts} fill="none"
+              stroke={colors[ki]} strokeWidth="2" strokeLinejoin="round" opacity={0.9}/>
+          );
         })}
         {data.map((d,i)=>(
           <g key={i}>
-            <line x1={px(i)} y1={padT} x2={px(i)} y2={padT+chartH} stroke={hovered===i?"rgba(0,0,0,.1)":"transparent"} strokeWidth="1"/>
-            <rect x={px(i)-12} y={padT} width={24} height={chartH} fill="transparent" style={{cursor:"default"}}
+            <line x1={px(i)} y1={padT} x2={px(i)} y2={padT+chartH}
+              stroke={hovered===i?"rgba(0,0,0,.1)":"transparent"} strokeWidth="1"/>
+            <rect x={px(i)-12} y={padT} width={24} height={chartH}
+              fill="transparent" style={{cursor:"default"}}
               onMouseEnter={()=>setHovered(i)} onMouseLeave={()=>setHovered(null)}/>
             <text x={px(i)} y={H-6} textAnchor="middle" fontSize="8" fill={C.muted}>{d.month}</text>
             {hovered===i && (
               <g>
                 <rect x={px(i)-30} y={padT} width={60} height={keys.length*13+8} fill={C.ink} rx="2"/>
                 {keys.map((k2,ki2)=>(
-                  <text key={k2} x={px(i)} y={padT+12+ki2*13} textAnchor="middle" fontSize="8" fill={C.p[ki2]}>{k2}: {d[k2]}</text>
+                  <text key={k2} x={px(i)} y={padT+12+ki2*13} textAnchor="middle" fontSize="8" fill={C.p[ki2]}>
+                    {k2}: {d[k2]}
+                  </text>
                 ))}
               </g>
             )}
@@ -339,6 +350,9 @@ function LineChartSVG({ data, keys, colors, title, subtitle }) {
   );
 }
 
+// ══════════════════════════════════════════════════════════════
+//  OUTFIT ILLUSTRATION (SVG)
+// ══════════════════════════════════════════════════════════════
 function OutfitIllustration({ colors=[] }) {
   const [c0,c1,c2] = [...colors,"#c8a882","#4a4a4a","#b8974a"];
   return (
@@ -360,7 +374,7 @@ function OutfitIllustration({ colors=[] }) {
 // ══════════════════════════════════════════════════════════════
 //  MAIN APP
 // ══════════════════════════════════════════════════════════════
-function App() {
+function FashionTrendForecaster() {
   const [tab, setTab]       = useState("forecast");
   const [topics, setTopics] = useState([]);
   const [inputVal, setInputVal] = useState("");
@@ -382,6 +396,14 @@ function App() {
   const today = new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"}).toUpperCase();
   const busy = fLoading||oLoading||dashLoading||storeLoad||pinLoad||scanning;
 
+  useEffect(()=>{
+    const l = document.createElement("link");
+    l.rel="stylesheet";
+    l.href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,400&family=DM+Mono:wght@400;500&display=swap";
+    document.head.appendChild(l);
+    return ()=>{ try{document.head.removeChild(l);}catch(e){} };
+  },[]);
+
   const addTopic = v => {
     const c=v.trim(); if(!c||topics.includes(c)) return;
     setTopics(p=>[...p,c]); setInputVal("");
@@ -392,174 +414,172 @@ function App() {
     setOutfits(p=>p.filter(o=>o.trend!==t));
   };
 
-  // ── Scan web for trend topics ────────────────────────────
-  const scanWeb = async () => {
-    setScanning(true); setStatus("Scanning for trends…");
+  const scanWeb = async()=>{
+    setScanning(true); setStatus("Scanning web for trends…");
     try {
       const parsed = await groq(
-        'You are a fashion analyst with deep knowledge of 2026 trends. Return ONLY a JSON object with a "topics" array of exactly 5 short trend names (2-3 words each). Example: {"topics":["Quiet Luxury","Gorpcore","Ballet Core","Moto Aesthetic","Sheer Layering"]}',
-        "List the 5 biggest emerging fashion trends of 2026. Short 2-3 word names only. Return JSON."
+        'You are a fashion analyst. Search the web for what is trending in fashion right now. You MUST return a JSON object with a "topics" array of exactly 5 short trend names. Example: {"topics":["Quiet Luxury","Gorpcore","Ballet Core","Moto Aesthetic","Sheer Layering"]}. Output ONLY the JSON object, nothing else.',
+        "Search web for the 5 biggest emerging fashion trends of 2026. Short 2-3 word names only."
       );
       const found = Array.isArray(parsed) ? parsed : (parsed.topics || Object.values(parsed)[0] || []);
-      const fresh = (Array.isArray(found) ? found : []).filter(t => typeof t==="string" && t.length>0 && !topics.includes(t));
+      const fresh = (Array.isArray(found) ? found : []).filter(t => typeof t==="string" && t.length > 0 && !topics.includes(t));
       if (fresh.length === 0) throw new Error("No new topics returned");
       setTopics(p=>[...p,...fresh]);
-      setStatus(`Added ${fresh.length} topics`);
-    } catch(e) { setStatus("Scan failed: " + e.message); }
-    finally { setScanning(false); }
+      setStatus(`Added ${fresh.length} topics from web`);
+    } catch(e){ setStatus("Scan failed: " + e.message); }
+    finally{ setScanning(false); }
   };
 
-  // ── Run forecast + build looks ───────────────────────────
-  const runForecast = async () => {
-    if (!topics.length) return;
+  const runForecast = async()=>{
+    if(!topics.length) return;
     setFLoading(true); setStatus(`Forecasting ${topics.length} trend(s)…`);
     try {
       const res = await Promise.allSettled(topics.map(async topic => {
-        const parsed = await groq(
-          'You are a fashion trend forecaster with expert knowledge of 2026 fashion. Output ONLY a valid JSON object with these exact keys: topic, category, heat, forecast, signals, confidence. Rules: category must be one of Style/Color/Silhouette/Material/Aesthetic/Accessory. heat must be one of: hot, rising, emerging, fading. forecast is a 2-3 sentence editorial prediction. signals is an array of exactly 3 short strings. confidence is an integer 0-100.',
-          `Forecast the fashion trend: "${topic}" for 2026. Return only the JSON object.`
+        const parsed =await groq(
+          'You are a fashion trend forecaster. Use web_search to research ANY fashion topic given to you — familiar or unfamiliar. Always produce a forecast. Output ONLY a JSON object:\n{"topic":"exact topic name","category":"Style/Color/Silhouette/Material/Aesthetic/Accessory","heat":"rising","forecast":"2-3 sentence editorial forecast","signals":["signal 1","signal 2","signal 3"],"confidence":75}\nheat = hot | rising | emerging | fading. confidence = 0-100 integer.',
+          `You MUST forecast this fashion topic regardless of how niche or unfamiliar it seems: "${topic}". Search the web for any signals about this trend in 2026 and produce a forecast.`
         );
+        // Ensure topic field is set even if model omits it
         if (parsed && !parsed.topic) parsed.topic = topic;
         return parsed;
       }));
-
-      const good = res
-        .filter(r => r.status==="fulfilled" && r.value && typeof r.value==="object")
-        .map(r => ({
-          topic:      r.value.topic      || topics[0],
-          category:   r.value.category   || "Style",
-          heat:       r.value.heat       || "emerging",
-          forecast:   r.value.forecast   || "Trend data collected.",
-          signals:    Array.isArray(r.value.signals) ? r.value.signals : [],
-          confidence: Number(r.value.confidence) || 70,
-        }));
-
+      const good = res.filter(r=>r.status==="fulfilled" && r.value && typeof r.value==="object").map(r=>({
+        topic: r.value.topic || topics[0],
+        category: r.value.category || "Style",
+        heat: r.value.heat || "emerging",
+        forecast: r.value.forecast || "Trend data collected.",
+        signals: r.value.signals || [],
+        confidence: r.value.confidence || 70,
+      }));
       setForecasts(good);
       setFLoading(false);
-
       if (good.length > 0) {
         setStatus(`${good.length} forecasts ready — curating looks…`);
         setOLoading(true);
         const ores = await Promise.allSettled(topics.map(async topic => {
           const parsed = await groq(
-            'You are a fashion stylist with expert knowledge of 2026 fashion. Output ONLY a valid JSON object with these exact keys: trend, outfitName, description, imageSearchQuery, colors, pieces, shoppingLinks, sources. Rules: colors is an array of exactly 3 hex color codes. pieces is an array of 4 objects each with name and priceRange. shoppingLinks is an array of 3 objects each with retailer and url — use real retailer URLs from: net-a-porter.com, ssense.com, farfetch.com, nordstrom.com, asos.com, zara.com, hm.com. sources is an array of 2 objects each with publication, title, url.',
-            `Curate an outfit look for the fashion trend: "${topic}" in 2026. Return only the JSON object.`
+            'You are a fashion stylist. Use web_search. Output ONLY a JSON object:\n{"trend":"topic","outfitName":"name","description":"2 sentences","imageSearchQuery":"search terms","colors":["#c8a882","#4a4a4a","#b8974a"],"pieces":[{"name":"item","priceRange":"$X"}],"shoppingLinks":[{"retailer":"name","url":"https://retailer.com"}],"sources":[{"publication":"Vogue","title":"article","url":"https://..."}]}\ncolors: 3 hex codes. shoppingLinks: net-a-porter.com ssense.com farfetch.com nordstrom.com asos.com zara.com hm.com. 4 pieces, 3 links, 2 sources.',
+            `Curate an outfit look for the fashion trend: "${topic}" in 2026. Search for editorial inspiration and retail options.`
           );
           if (parsed && !parsed.trend) parsed.trend = topic;
           return parsed;
         }));
-
-        const og = ores
-          .filter(r => r.status==="fulfilled" && r.value && typeof r.value==="object")
-          .map(r => ({
-            trend:            r.value.trend            || topics[0],
-            outfitName:       r.value.outfitName       || "The Look",
-            description:      r.value.description      || "",
-            imageSearchQuery: r.value.imageSearchQuery || r.value.trend,
-            colors:           Array.isArray(r.value.colors) ? r.value.colors : ["#c8a882","#4a4a4a","#b8974a"],
-            pieces:           Array.isArray(r.value.pieces) ? r.value.pieces : [],
-            shoppingLinks:    Array.isArray(r.value.shoppingLinks) ? r.value.shoppingLinks : [],
-            sources:          Array.isArray(r.value.sources) ? r.value.sources : [],
-          }));
-
+        const og = ores.filter(r=>r.status==="fulfilled" && r.value && typeof r.value==="object").map(r=>({
+          trend: r.value.trend || topics[0],
+          outfitName: r.value.outfitName || r.value.trend || "The Look",
+          description: r.value.description || "",
+          imageSearchQuery: r.value.imageSearchQuery || r.value.trend,
+          colors: r.value.colors || ["#c8a882","#4a4a4a","#b8974a"],
+          pieces: r.value.pieces || [],
+          shoppingLinks: r.value.shoppingLinks || [],
+          sources: r.value.sources || [],
+        }));
         setOutfits(og);
         setOLoading(false);
         setStatus(`Done — ${good.length} forecasts · ${og.length} looks curated`);
       } else {
-        setFLoading(false);
         setStatus("No forecasts returned — please try again");
       }
-    } catch(e) {
+    } catch(e){
       setFLoading(false); setOLoading(false);
       setStatus("Error: " + e.message);
     }
   };
 
-  // ── Refresh analytics dashboard ──────────────────────────
-  const refreshDash = async () => {
-    setDashLoading(true); setStatus("Refreshing dashboard…");
+  const refreshDash = async()=>{
+    setDashLoading(true); setStatus("Refreshing dashboard with live data…");
     try {
-      const parsed = await groq(
-        'You are a fashion data analyst with expert knowledge of 2026 fashion markets. Output ONLY a valid JSON object with ALL of these keys: kpis (array of 4 objects: label, value, delta, up boolean), seasonal (array of 4: season, Casual, Formal, Street, Luxury — all numbers 0-100), stores (array of 7: name, pct — numbers summing near 100), rising (array of 5: style, score 0-100), declining (array of 5: style, score 0-100), prob (array of 6: trend, prob 0-100), momentum (array of 6: month, Luxury, Street, Sport, Minimal — all numbers 0-100), bags (array of 6: name, trend — trend must be up/flat/down), accessories (array of 6: name, trend), shoes (array of 6: name, trend).',
-        "Generate a complete 2026 fashion analytics dashboard with realistic trend data. Return only the JSON."
+      const parsed = await claude(
+        'You are a fashion data analyst. Search the web for 2026 fashion trend data. Output ONLY a JSON object with ALL of these keys: kpis (array of 4 objects with label/value/delta/up), seasonal (array of 4 objects with season/Casual/Formal/Street/Luxury as numbers), stores (array of 7 with name/pct), rising (array of 5 with style/score), declining (array of 5 with style/score), prob (array of 6 with trend/prob), momentum (array of 6 with month/Luxury/Street/Sport/Minimal), bags (array of 6 with name/trend), accessories (array of 6 with name/trend), shoes (array of 6 with name/trend). trend values must be up, flat, or down. All scores/pct are numbers 0-100.',
+        "Search for 2026 fashion market analytics: seasonal trends, popular retailers, rising and declining styles, accessories, shoes, bags. Return the complete dashboard JSON."
       );
+      // Fuzzy merge — only replace keys that exist and are valid arrays
       const merged = { ...DEFAULT_DASH };
       if (parsed && typeof parsed === "object") {
         const keys = ["kpis","seasonal","stores","rising","declining","prob","momentum","bags","accessories","shoes"];
         let updated = 0;
         keys.forEach(k => {
-          if (Array.isArray(parsed[k]) && parsed[k].length > 0) { merged[k] = parsed[k]; updated++; }
+          if (Array.isArray(parsed[k]) && parsed[k].length > 0) {
+            merged[k] = parsed[k];
+            updated++;
+          }
         });
         setDash(merged);
-        setStatus(updated >= 5 ? "Dashboard updated" : `Partial update (${updated}/10 sections)`);
+        setStatus(updated >= 5 ? "Dashboard updated with live data" : `Dashboard partially updated (${updated}/10 sections)`);
       } else {
-        setStatus("Could not parse — showing defaults");
+        setStatus("Could not parse live data — showing defaults");
       }
-    } catch(e) { setStatus("Refresh failed: " + e.message); }
-    finally { setDashLoading(false); }
+    } catch(e){ setStatus("Refresh failed — showing defaults"); }
+    finally{ setDashLoading(false); }
   };
 
-  // ── Load stores ──────────────────────────────────────────
-  const loadStores = async () => {
+  const loadStores = async()=>{
     setStoreLoad(true); setStatus("Finding trending stores…");
     try {
       const parsed = await groq(
-        'You are a fashion retail analyst with expert knowledge of 2026 fashion retail. Output ONLY a valid JSON array of exactly 8 store objects. Each object must have: name (string), category (string), priceRange (string like "$" or "$$$$"), description (1-2 sentences), url (real store URL), trendingItems (array of 4 objects each with name and price). Use real store names and real URLs.',
-        "List 8 popular fashion retailers in 2026 with their trending items. Return only the JSON array."
+        'You are a fashion retail analyst. Search the web. Output ONLY a JSON array of store objects:\n[{"name":"Store Name","category":"Luxury","priceRange":"$$$$","description":"1-2 sentences about the store.","url":"https://store.com","trendingItems":[{"name":"Item Name","price":"$99"}]}]\n8 stores total. 4 trending items each. Mix of luxury, fast fashion, streetwear, contemporary. Use real store names and real URLs.',
+        "Find 8 popular and trending fashion retailers in 2026. Include their current hottest items and prices."
       );
       const arr = Array.isArray(parsed) ? parsed : (parsed.stores || parsed.results || []);
       if (arr.length > 0) { setStores(arr); setStatus("Stores loaded"); }
       else throw new Error("No stores in response");
-    } catch(e) { setStatus("Store load failed: " + e.message); }
-    finally { setStoreLoad(false); }
+    } catch(e){ setStatus("Store load failed: " + e.message); }
+    finally{ setStoreLoad(false); }
   };
 
-  // ── Load Pinterest-style pins ────────────────────────────
-  const loadPins = async () => {
+  const loadPins = async()=>{
     setPinLoad(true); setStatus("Loading outfit inspiration…");
     try {
       const q = topics.length > 0 ? topics.join(", ") : "quiet luxury, gorpcore, ballet core 2026";
       const parsed = await groq(
-        'You are a fashion stylist with expert knowledge of 2026 fashion. Output ONLY a valid JSON array of exactly 6 outfit objects. Each object must have: title (string), trend (string), gender ("female" or "male"), description (2 editorial sentences), searchQuery (string), colors (array of 3 hex codes), shopLinks (array of 3 objects each with retailer and url). Make exactly 3 female and 3 male looks. Use real retailer URLs from: net-a-porter.com, ssense.com, mrporter.com, nordstrom.com, asos.com, zara.com, hm.com, farfetch.com.',
-        `Create 6 Pinterest-style outfit inspirations for these trends: ${q}. Return 3 female and 3 male looks. Return only the JSON array.`
+        'You are a fashion stylist. Search the web for outfit inspiration. Output ONLY a JSON array of 6 outfit objects:\n[{"title":"Look Name","trend":"trend name","gender":"female","description":"2 editorial sentences about the outfit.","searchQuery":"outfit search terms 2026","colors":["#hex1","#hex2","#hex3"],"shopLinks":[{"retailer":"Name","url":"https://retailer.com/path"}]}]\nIMPORTANT: Make exactly 3 female looks and 3 male looks. Set gender to "female" or "male" accordingly. 3 shopLinks each. Use real retailer domains: net-a-porter.com, ssense.com, mrporter.com, nordstrom.com, asos.com, zara.com, hm.com, farfetch.com.',
+        `Find 6 Pinterest-style outfit inspirations for these fashion trends: ${q}. Return 3 female looks and 3 male looks.`
       );
       const arr = Array.isArray(parsed) ? parsed : (parsed.pins || parsed.looks || []);
       if (arr.length > 0) { setPins(arr); setStatus(`${arr.length} looks loaded`); }
       else throw new Error("No looks in response");
-    } catch(e) { setStatus("Looks load failed: " + e.message); }
-    finally { setPinLoad(false); }
+    } catch(e){ setStatus("Looks load failed: " + e.message); }
+    finally{ setPinLoad(false); }
   };
 
-  // ── UI helpers ───────────────────────────────────────────
+  // ── Shared UI helpers ──────────────────────────────────────
   const heatStyle = h => ({
-    hot:      {bg:C.accent, cl:"white"},
-    rising:   {bg:C.gold,   cl:"white"},
-    emerging: {bg:C.ink,    cl:C.cream},
-    fading:   {bg:C.border, cl:C.muted},
-  }[h] || {bg:C.ink, cl:C.cream});
+    hot:{bg:C.accent,cl:"white"}, rising:{bg:C.gold,cl:"white"},
+    emerging:{bg:C.ink,cl:C.cream}, fading:{bg:C.border,cl:C.muted}
+  }[h]||{bg:C.ink,cl:C.cream});
 
-  const oFilters = ["All",...new Set(outfits.map(o=>o.trend).filter(Boolean))];
-  const filteredO = oFilter==="All" ? outfits : outfits.filter(o=>o.trend===oFilter);
+  const ArrIcon = ({t}) => (
+    <span style={{color:t==="up"?C.up:t==="down"?C.down:C.gold,fontSize:11}}>
+      {t==="up"?"↑":t==="down"?"↓":"→"}
+    </span>
+  );
 
-  const TABS = [["forecast","① Forecast"],["outfits","② The Edit"],["shop","③ Shop & Stores"],["pinterest","④ Pinterest"],["dashboard","⑤ Analytics"]];
+  const oFilters=["All",...new Set(outfits.map(o=>o.trend).filter(Boolean))];
+  const filteredO=oFilter==="All"?outfits:outfits.filter(o=>o.trend===oFilter);
+
+  const TABS=[["forecast","① Forecast"],["outfits","② The Edit"],["shop","③ Shop & Stores"],["pinterest","④ Pinterest"],["dashboard","⑤ Analytics"]];
 
   const CardWrap = ({children, style={}}) => (
     <div style={{border:`1.5px solid ${C.border}`,padding:18,background:"white",...style}}>{children}</div>
   );
+
   const SecLabel = ({children}) => (
     <div style={{fontSize:8,letterSpacing:".35em",textTransform:"uppercase",color:C.muted,borderBottom:`1px solid ${C.border}`,paddingBottom:6,marginBottom:14}}>
       {children}
     </div>
   );
 
+  // ── Static store fallback ──────────────────────────────────
   const STATIC_STORES = [
     {name:"Net-a-Porter",category:"Luxury",priceRange:"$$$$",url:"https://www.net-a-porter.com",description:"The go-to luxury destination. Current edit leans into Quiet Luxury and minimalist tailoring.",trendingItems:[{name:"Toteme Silk Wrap Blouse",price:"$420"},{name:"The Row Margaux Bag",price:"$1,890"},{name:"Vince Cashmere Sweater",price:"$385"},{name:"Khaite Denim Trousers",price:"$620"}]},
     {name:"SSENSE",category:"Luxury / Streetwear",priceRange:"$$$–$$$$",url:"https://www.ssense.com",description:"Where luxury meets cutting-edge streetwear. Best for avant-garde pieces.",trendingItems:[{name:"Acne Studios Blazer",price:"$650"},{name:"Lemaire Twisted Belt",price:"$245"},{name:"Our Legacy Trousers",price:"$310"},{name:"Paloma Wool Knit",price:"$185"}]},
     {name:"Zara",category:"Fast Fashion",priceRange:"$–$$",url:"https://www.zara.com",description:"Fastest runway-to-retail cycle. Strong on structured blazers and ballet flats right now.",trendingItems:[{name:"Structured Wool Blazer",price:"$129"},{name:"Ballet Flat Mules",price:"$59"},{name:"Satin Midi Skirt",price:"$79"},{name:"Linen Trench Coat",price:"$149"}]},
     {name:"ASOS",category:"Contemporary",priceRange:"$–$$",url:"https://www.asos.com",description:"Trend-forward pieces at accessible prices with strong inclusive sizing.",trendingItems:[{name:"Oversized Trench",price:"$89"},{name:"Mary Jane Heels",price:"$45"},{name:"Sheer Layering Top",price:"$38"},{name:"Wide Leg Trousers",price:"$55"}]},
   ];
+
   const displayStores = stores.length > 0 ? stores : STATIC_STORES;
 
+  // ─────────────────────────────────────────────────────────
   return (
     <div style={{background:C.cream,fontFamily:"'DM Mono',monospace",color:C.ink,minHeight:"100vh"}}>
 
@@ -576,8 +596,7 @@ function App() {
       {/* TABS */}
       <div style={{display:"flex",borderBottom:`1px solid ${C.border}`,background:C.cream,position:"sticky",top:52,zIndex:50,overflowX:"auto"}}>
         {TABS.map(([id,lbl])=>(
-          <button key={id} onClick={()=>setTab(id)}
-            style={{padding:"10px 18px",fontSize:9,letterSpacing:".22em",textTransform:"uppercase",cursor:"pointer",border:"none",background:"transparent",color:tab===id?C.ink:C.muted,borderBottom:tab===id?`2px solid ${C.accent}`:"2px solid transparent",fontFamily:"monospace",whiteSpace:"nowrap",transition:"all .15s"}}>
+          <button key={id} onClick={()=>setTab(id)} style={{padding:"10px 18px",fontSize:9,letterSpacing:".22em",textTransform:"uppercase",cursor:"pointer",border:"none",background:"transparent",color:tab===id?C.ink:C.muted,borderBottom:tab===id?`2px solid ${C.accent}`:"2px solid transparent",fontFamily:"monospace",whiteSpace:"nowrap",transition:"all .15s"}}>
             {lbl}
           </button>
         ))}
@@ -586,35 +605,29 @@ function App() {
       <div style={{display:"grid",gridTemplateColumns:"1fr 270px",minHeight:"calc(100vh - 94px)"}}>
         <div style={{borderRight:`1px solid ${C.border}`,padding:"24px 28px"}}>
 
-          {/* ══ FORECAST ══ */}
+          {/* ══ FORECAST ══════════════════════════════════════ */}
           {tab==="forecast" && (
             <div>
               <SecLabel>Track a Trend</SecLabel>
               <div style={{display:"flex",marginBottom:16,border:`1.5px solid ${C.ink}`}}>
-                <input
-                  style={{flex:1,border:"none",background:"transparent",padding:"10px 12px",fontFamily:"monospace",fontSize:12,color:C.ink,outline:"none"}}
+                <input style={{flex:1,border:"none",background:"transparent",padding:"10px 12px",fontFamily:"monospace",fontSize:12,color:C.ink,outline:"none"}}
                   placeholder="e.g. Ballet Core, Quiet Luxury, Raw Denim…"
-                  value={inputVal}
-                  onChange={e=>setInputVal(e.target.value)}
+                  value={inputVal} onChange={e=>setInputVal(e.target.value)}
                   onKeyDown={e=>e.key==="Enter"&&addTopic(inputVal)}/>
-                <button onClick={()=>addTopic(inputVal)}
-                  style={{padding:"10px 16px",background:C.ink,color:C.cream,border:"none",fontFamily:"monospace",fontSize:9,letterSpacing:".2em",textTransform:"uppercase",cursor:"pointer"}}>
-                  + Add
-                </button>
+                <button onClick={()=>addTopic(inputVal)} style={{padding:"10px 16px",background:C.ink,color:C.cream,border:"none",fontFamily:"monospace",fontSize:9,letterSpacing:".2em",textTransform:"uppercase",cursor:"pointer"}}>+ Add</button>
               </div>
 
-              {topics.length>0 && (
+              {topics.length>0&&(
                 <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:16}}>
                   {topics.map(t=>(
                     <span key={t} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"4px 10px",border:`1px solid ${C.border}`,fontSize:9,background:"white"}}>
-                      {t}
-                      <span onClick={()=>removeTopic(t)} style={{cursor:"pointer",color:C.muted,fontSize:13}}>×</span>
+                      {t}<span onClick={()=>removeTopic(t)} style={{cursor:"pointer",color:C.muted,fontSize:13}}>×</span>
                     </span>
                   ))}
                 </div>
               )}
 
-              {topics.length>0 && (
+              {topics.length>0&&(
                 <button onClick={runForecast} disabled={busy}
                   style={{padding:"10px 22px",background:busy?"#999":C.ink,color:C.cream,border:"none",fontFamily:"monospace",fontSize:9,letterSpacing:".2em",textTransform:"uppercase",cursor:busy?"not-allowed":"pointer",marginBottom:22}}>
                   {fLoading?"⟳ Analyzing…":oLoading?"⟳ Building looks…":`▶ Forecast + Build Looks (${topics.length})`}
@@ -622,8 +635,8 @@ function App() {
               )}
 
               <SecLabel>Trend Forecasts</SecLabel>
-              {fLoading && <div style={{color:C.muted,fontSize:11,padding:"20px 0"}}>⟳ Generating forecasts — takes ~10s…</div>}
-              {!fLoading && forecasts.length===0 && (
+              {fLoading&&<div style={{color:C.muted,fontSize:11,padding:"20px 0"}}>⟳ Searching web for trend signals — takes ~20s…</div>}
+              {!fLoading&&forecasts.length===0&&(
                 <div style={{textAlign:"center",padding:"48px 20px"}}>
                   <div style={{fontFamily:"Georgia,serif",fontSize:24,fontStyle:"italic",color:C.border,marginBottom:7}}>What's Next?</div>
                   <div style={{fontSize:9,letterSpacing:".15em",textTransform:"uppercase",color:C.muted}}>Add topics then click Forecast + Build Looks</div>
@@ -656,7 +669,7 @@ function App() {
                   );
                 })}
               </div>
-              {oLoading && <div style={{color:C.muted,fontSize:11,padding:"8px 0"}}>⟳ Curating outfit looks…</div>}
+              {oLoading&&<div style={{color:C.muted,fontSize:11,padding:"8px 0"}}>⟳ Curating outfit looks…</div>}
               <div style={{display:"flex",alignItems:"center",gap:7,marginTop:6}}>
                 <div style={{width:5,height:5,borderRadius:"50%",background:busy?C.accent:C.muted}}/>
                 <span style={{fontSize:9,color:C.muted}}>{status}</span>
@@ -664,23 +677,22 @@ function App() {
             </div>
           )}
 
-          {/* ══ THE EDIT ══ */}
+          {/* ══ THE EDIT ══════════════════════════════════════ */}
           {tab==="outfits" && (
             <div>
               <div style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:900,marginBottom:4}}>The Edit</div>
               <div style={{fontSize:8,letterSpacing:".25em",textTransform:"uppercase",color:C.muted,marginBottom:18}}>AI-curated looks · editorial sources · retail links</div>
-              {outfits.length===0 && !oLoading && (
+              {outfits.length===0&&!oLoading&&(
                 <div style={{textAlign:"center",padding:"48px 20px"}}>
                   <div style={{fontFamily:"Georgia,serif",fontSize:24,fontStyle:"italic",color:C.border,marginBottom:7}}>No Looks Yet</div>
                   <div style={{fontSize:9,letterSpacing:".15em",textTransform:"uppercase",color:C.muted}}>Go to Tab ① → add topics → Forecast + Build Looks</div>
                 </div>
               )}
-              {oLoading && <div style={{color:C.muted,fontSize:11,padding:"20px 0"}}>⟳ Curating outfit looks…</div>}
-              {outfits.length>0 && (
+              {oLoading&&<div style={{color:C.muted,fontSize:11,padding:"20px 0"}}>⟳ Curating outfit looks…</div>}
+              {outfits.length>0&&(
                 <div style={{display:"flex",gap:7,marginBottom:18,flexWrap:"wrap"}}>
                   {oFilters.map(n=>(
-                    <button key={n} onClick={()=>setOFilter(n)}
-                      style={{padding:"5px 13px",border:`1px solid ${oFilter===n?C.ink:C.border}`,fontSize:8,letterSpacing:".2em",textTransform:"uppercase",cursor:"pointer",background:oFilter===n?C.ink:"white",color:oFilter===n?C.cream:C.ink,fontFamily:"monospace"}}>
+                    <button key={n} onClick={()=>setOFilter(n)} style={{padding:"5px 13px",border:`1px solid ${oFilter===n?C.ink:C.border}`,fontSize:8,letterSpacing:".2em",textTransform:"uppercase",cursor:"pointer",background:oFilter===n?C.ink:"white",color:oFilter===n?C.cream:C.ink,fontFamily:"monospace"}}>
                       {n}
                     </button>
                   ))}
@@ -694,7 +706,7 @@ function App() {
                       <div style={{height:155,background:`linear-gradient(135deg,${pal[0]}33,${pal[1]}44)`,position:"relative",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:6}}>
                         <OutfitIllustration colors={pal}/>
                         <span style={{position:"absolute",top:8,left:8,fontSize:7,letterSpacing:".15em",textTransform:"uppercase",padding:"3px 7px",background:C.ink,color:C.cream}}>{o.trend}</span>
-                        {o.imageSearchQuery && (
+                        {o.imageSearchQuery&&(
                           <a href={`https://www.google.com/search?q=${encodeURIComponent(o.imageSearchQuery)}&tbm=isch`} target="_blank" rel="noopener noreferrer"
                             style={{position:"absolute",bottom:8,right:8,fontSize:7,letterSpacing:".12em",textTransform:"uppercase",padding:"3px 8px",border:`1px solid ${C.gold}`,color:C.gold,textDecoration:"none",background:"rgba(245,240,232,.9)"}}>
                             ↗ Images
@@ -707,7 +719,7 @@ function App() {
                         <div style={{display:"flex",gap:5,marginBottom:10}}>
                           {pal.map((c,j)=><span key={j} style={{width:14,height:14,borderRadius:"50%",background:c,border:`1px solid ${C.border}`,display:"inline-block"}}/>)}
                         </div>
-                        {(o.pieces||[]).length>0 && (
+                        {(o.pieces||[]).length>0&&(
                           <div style={{marginBottom:12}}>
                             <div style={{fontSize:7,letterSpacing:".25em",textTransform:"uppercase",color:C.muted,marginBottom:6}}>Key Pieces</div>
                             {o.pieces.map((p,j)=>(
@@ -718,7 +730,7 @@ function App() {
                             ))}
                           </div>
                         )}
-                        {(o.shoppingLinks||[]).length>0 && (
+                        {(o.shoppingLinks||[]).length>0&&(
                           <div style={{marginBottom:10}}>
                             <div style={{fontSize:7,letterSpacing:".25em",textTransform:"uppercase",color:C.muted,marginBottom:6}}>Shop the Look</div>
                             <div style={{display:"flex",flexWrap:"wrap"}}>
@@ -731,16 +743,14 @@ function App() {
                             </div>
                           </div>
                         )}
-                        {(o.sources||[]).length>0 && (
+                        {(o.sources||[]).length>0&&(
                           <div style={{borderTop:`1px solid ${C.border}`,paddingTop:9}}>
                             <div style={{fontSize:7,letterSpacing:".2em",textTransform:"uppercase",color:C.muted,marginBottom:5}}>Editorial Sources</div>
                             {o.sources.map((s,j)=>(
                               <div key={j} style={{display:"flex",alignItems:"baseline",gap:5,fontSize:9,color:C.muted,marginBottom:2}}>
                                 <span>—</span>
-                                <span>
-                                  <span style={{fontStyle:"italic",color:C.ink}}>{s.publication}</span>
-                                  {s.url && <a href={s.url} target="_blank" rel="noopener noreferrer" style={{color:C.gold,textDecoration:"none",marginLeft:4,fontSize:8}}>↗</a>}
-                                </span>
+                                <span><span style={{fontStyle:"italic",color:C.ink}}>{s.publication}</span>
+                                {s.url&&<a href={s.url} target="_blank" rel="noopener noreferrer" style={{color:C.gold,textDecoration:"none",marginLeft:4,fontSize:8}}>↗</a>}</span>
                               </div>
                             ))}
                           </div>
@@ -753,7 +763,7 @@ function App() {
             </div>
           )}
 
-          {/* ══ SHOP & STORES ══ */}
+          {/* ══ SHOP & STORES ════════════════════════════════ */}
           {tab==="shop" && (
             <div>
               <div style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:900,marginBottom:4}}>Shop & Stores</div>
@@ -762,7 +772,7 @@ function App() {
                 style={{padding:"9px 20px",background:"transparent",border:`1.5px solid ${C.accent}`,color:C.accent,fontFamily:"monospace",fontSize:9,letterSpacing:".2em",textTransform:"uppercase",cursor:storeLoad?"not-allowed":"pointer",opacity:storeLoad?.5:1,marginBottom:22}}>
                 {storeLoad?"⟳ Loading…":"⟳ Load Live Store Data"}
               </button>
-              {storeLoad && <div style={{color:C.muted,fontSize:11,padding:"10px 0"}}>⟳ Generating store data…</div>}
+              {storeLoad&&<div style={{color:C.muted,fontSize:11,padding:"10px 0"}}>⟳ Searching web for trending stores and prices…</div>}
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
                 {displayStores.map((s,i)=>(
                   <div key={i} style={{border:`1.5px solid ${C.border}`,background:"white",padding:16}}>
@@ -791,7 +801,7 @@ function App() {
             </div>
           )}
 
-          {/* ══ PINTEREST ══ */}
+          {/* ══ PINTEREST ════════════════════════════════════ */}
           {tab==="pinterest" && (
             <div>
               <div style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:900,marginBottom:4}}>Pinterest Looks</div>
@@ -800,9 +810,9 @@ function App() {
                 style={{padding:"9px 20px",background:"transparent",border:"1.5px solid #E60023",color:"#E60023",fontFamily:"monospace",fontSize:9,letterSpacing:".2em",textTransform:"uppercase",cursor:pinLoad?"not-allowed":"pointer",opacity:pinLoad?.5:1,marginBottom:22}}>
                 {pinLoad?"⟳ Finding looks…":"📌 Load Outfit Inspiration"}
               </button>
-              {topics.length>0 && <div style={{fontSize:9,color:C.muted,marginBottom:14}}>Pulling looks for: {topics.join(", ")}</div>}
-              {pinLoad && <div style={{color:C.muted,fontSize:11,padding:"10px 0"}}>⟳ Generating outfit inspiration…</div>}
-              {pins.length===0 && !pinLoad && (
+              {topics.length>0&&<div style={{fontSize:9,color:C.muted,marginBottom:14}}>Pulling looks for: {topics.join(", ")}</div>}
+              {pinLoad&&<div style={{color:C.muted,fontSize:11,padding:"10px 0"}}>⟳ Searching for outfit inspiration…</div>}
+              {pins.length===0&&!pinLoad&&(
                 <div style={{textAlign:"center",padding:"48px 20px"}}>
                   <div style={{fontFamily:"Georgia,serif",fontSize:24,fontStyle:"italic",color:C.border,marginBottom:7}}>No Pins Yet</div>
                   <div style={{fontSize:9,letterSpacing:".15em",textTransform:"uppercase",color:C.muted}}>Click the button above to load inspiration</div>
@@ -843,15 +853,18 @@ function App() {
             </div>
           )}
 
-          {/* ══ ANALYTICS DASHBOARD ══ */}
+          {/* ══ ANALYTICS DASHBOARD — pure SVG, zero Recharts ═ */}
           {tab==="dashboard" && (
             <div>
               <div style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:900,marginBottom:4}}>Analytics Dashboard</div>
               <div style={{fontSize:8,letterSpacing:".3em",textTransform:"uppercase",color:C.muted,marginBottom:18}}>Fashion Intelligence · SS 2026</div>
+
               <button onClick={refreshDash} disabled={dashLoading}
                 style={{padding:"9px 20px",background:"transparent",border:`1.5px solid ${C.accent}`,color:C.accent,fontFamily:"monospace",fontSize:9,letterSpacing:".2em",textTransform:"uppercase",cursor:dashLoading?"not-allowed":"pointer",opacity:dashLoading?.5:1,marginBottom:22}}>
-                {dashLoading?"⟳ Fetching live data…":"⟳ Refresh with AI Data"}
+                {dashLoading?"⟳ Fetching live data…":"⟳ Refresh with Live Web Data"}
               </button>
+
+              {/* KPIs */}
               <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:22}}>
                 {dash.kpis.map((k,i)=>(
                   <div key={i} style={{border:`1.5px solid ${C.ink}`,padding:14,background:"white"}}>
@@ -861,9 +874,12 @@ function App() {
                   </div>
                 ))}
               </div>
+
+              {/* Seasonal grouped bars + Store donut */}
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
                 <CardWrap>
-                  <BarChartSVG data={dash.seasonal} keys={["Casual","Formal","Street","Luxury"]}
+                  <BarChartSVG
+                    data={dash.seasonal} keys={["Casual","Formal","Street","Luxury"]}
                     colors={["#c8431a","#b8974a","#2d7a4f","#5b6fa6"]}
                     title="Seasonal Wear Trends" subtitle="Style category index by season"/>
                 </CardWrap>
@@ -871,11 +887,16 @@ function App() {
                   <DonutChart data={dash.stores} title="Store Popularity" subtitle="Share of trend coverage · %"/>
                 </CardWrap>
               </div>
+
+              {/* Momentum line chart */}
               <CardWrap style={{marginBottom:16}}>
-                <LineChartSVG data={dash.momentum} keys={["Luxury","Street","Sport","Minimal"]}
+                <LineChartSVG
+                  data={dash.momentum} keys={["Luxury","Street","Sport","Minimal"]}
                   colors={["#c8431a","#b8974a","#2d7a4f","#5b6fa6"]}
                   title="Style Momentum · 6-Month Index" subtitle="Hover months for details"/>
               </CardWrap>
+
+              {/* Rising + Declining */}
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
                 <CardWrap>
                   <HBarChart data={dash.rising} labelKey="style" valueKey="score"
@@ -886,6 +907,8 @@ function App() {
                     color={C.down} title="↓ Declining Styles" subtitle="Trend momentum score 0–100"/>
                 </CardWrap>
               </div>
+
+              {/* Probability dark panel */}
               <div style={{border:`1.5px solid ${C.ink}`,padding:18,background:C.ink,color:C.cream,marginBottom:16}}>
                 <div style={{fontFamily:"Georgia,serif",fontSize:15,fontWeight:700,fontStyle:"italic",marginBottom:3,color:C.cream}}>Probability: What Trends Next</div>
                 <div style={{fontSize:7,letterSpacing:".2em",textTransform:"uppercase",color:"rgba(245,240,232,.4)",marginBottom:18}}>AI-modeled breakout likelihood · next 2 seasons</div>
@@ -899,6 +922,8 @@ function App() {
                   </div>
                 ))}
               </div>
+
+              {/* Accessories grid */}
               <SecLabel>Accessories Intelligence</SecLabel>
               <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:18}}>
                 {[["👜 Bags","bags"],["✦ Accessories","accessories"],["👟 Shoes","shoes"]].map(([title,key])=>(
@@ -915,6 +940,7 @@ function App() {
                   </div>
                 ))}
               </div>
+
               <div style={{display:"flex",alignItems:"center",gap:7}}>
                 <div style={{width:5,height:5,borderRadius:"50%",background:dashLoading?C.accent:C.muted}}/>
                 <span style={{fontSize:9,color:C.muted}}>{dashLoading?"Fetching live data…":status}</span>
@@ -957,7 +983,7 @@ function App() {
           <hr style={{border:"none",borderTop:`1px solid ${C.border}`,margin:"14px 0"}}/>
           <SecLabel>Tech Stack</SecLabel>
           <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:4}}>
-            {["Groq API","Llama 3.3 70B","Custom SVG Charts","React","Netlify"].map(t=>(
+            {["Anthropic API","Web Search","Custom SVG Charts","React","Data Viz"].map(t=>(
               <span key={t} style={{fontSize:7,letterSpacing:".12em",textTransform:"uppercase",padding:"3px 7px",border:`1px solid ${C.border}`,color:C.muted}}>{t}</span>
             ))}
           </div>
@@ -965,9 +991,6 @@ function App() {
       </div>
     </div>
   );
-}
-
-);
 }
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
