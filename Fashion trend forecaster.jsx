@@ -101,11 +101,21 @@ function extractJSON(str) {
 }
 
 async function groq(system, user) {
-  // We call our OWN function now, so the key stays hidden!
-  const r = await fetch("/.netlify/functions/groq", {
+  let apiKey = sessionStorage.getItem("groq_key");
+
+  if (!apiKey) {
+    apiKey = prompt("Welcome to the Horizon Retail Intelligence Portal. Please enter your authorized password to proceed:");
+    if (apiKey) sessionStorage.setItem("groq_key", apiKey);
+  }
+
+  const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + apiKey
+    },
     body: JSON.stringify({
+      model: "llama-3.3-70b-versatile",
       messages: [
         { role: "system", content: system },
         { role: "user", content: user }
@@ -115,7 +125,8 @@ async function groq(system, user) {
   });
 
   if (!r.ok) {
-    throw new Error(`Function Error: ${r.status}`);
+    sessionStorage.removeItem("groq_key"); // Clear invalid keys
+    throw new Error(`Connection Error: ${r.status}`);
   }
 
   const d = await r.json();
