@@ -127,21 +127,17 @@ async function groq(system, user) {
       model: "llama-3.3-70b-versatile",
       messages: [
         { role: "system", content: system },
-        { role: "user",   content: user  }
+        { role: "user", content: user }
       ],
-      response_format: { type: "json_object" },
-      temperature: 0.7,
-      max_tokens: 1500,
+      response_format: { type: "json_object" }
     }),
   });
 
   if (!r.ok) {
-    const errText = await r.text().catch(() => "");
-    throw new Error(`Groq API error ${r.status}: ${errText.slice(0, 200)}`);
+    throw new Error("Proxy error: " + r.status);
   }
 
   const d = await r.json();
-  if (!d.choices || !d.choices[0]) throw new Error("No choices in Groq response");
   return extractJSON(d.choices[0].message.content);
 }
 
