@@ -535,21 +535,25 @@ function FashionTrendForecaster() {
     finally{ setStoreLoad(false); }
   };
 
-  const loadPins = async()=>{
+ const loadPins = async()=>{
     setPinLoad(true); setStatus("Loading outfit inspiration…");
     try {
       const q = topics.length > 0 ? topics.join(", ") : "quiet luxury, gorpcore, ballet core 2026";
       const parsed = await groq(
-        'You are a fashion stylist. Search the web for outfit inspiration. Output ONLY a JSON array of 6 outfit objects:\n[{"title":"Look Name","trend":"trend name","gender":"female","description":"2 editorial sentences about the outfit.","searchQuery":"outfit search terms 2026","colors":["#hex1","#hex2","#hex3"],"shopLinks":[{"retailer":"Name","url":"https://retailer.com/path"}]}]\nIMPORTANT: Make exactly 3 female looks and 3 male looks. Set gender to "female" or "male" accordingly. 3 shopLinks each. Use real retailer domains: net-a-porter.com, ssense.com, mrporter.com, nordstrom.com, asos.com, zara.com, hm.com, farfetch.com.',
-        `Find 6 Pinterest-style outfit inspirations for these fashion trends: ${q}. Return 3 female looks and 3 male looks.`
+        'You are a fashion stylist. Output ONLY a JSON array of 6 outfit objects:\n' +
+        '[{"title":"Look Name","trend":"trend name","gender":"female","description":"2 editorial sentences.","img":"https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=400","searchQuery":"outfit search terms","colors":["#hex1","#hex2"],"shopLinks":[{"retailer":"Name","url":"https://retailer.com"}]}]\n' +
+        'IMPORTANT: Use realistic Unsplash fashion URLs for the "img" field. 3 female, 3 male.',
+        `Find 6 Pinterest-style inspirations for: ${q}.`
       );
       const arr = Array.isArray(parsed) ? parsed : (parsed.pins || parsed.looks || []);
-      if (arr.length > 0) { setPins(arr); setStatus(`${arr.length} looks loaded`); }
+      if (arr.length > 0) { 
+        setPins(arr); 
+        setStatus(`${arr.length} looks loaded`); 
+      }
       else throw new Error("No looks in response");
     } catch(e){ setStatus("Looks load failed: " + e.message); }
     finally{ setPinLoad(false); }
   };
-
   // ── Shared UI helpers ──────────────────────────────────────
   const heatStyle = h => ({
     hot:{bg:C.accent,cl:"white"}, rising:{bg:C.gold,cl:"white"},
